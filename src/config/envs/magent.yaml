@@ -1,0 +1,27 @@
+env: "magent"
+
+env_args:
+  map_name: null
+  max_cycles: 100
+  extra_features: False
+  # dead_penalty: -0.1
+  # attack_penalty: -0.01
+  # attack_opponent_reward: 0.2
+  pretrained_wrapper: True
+  tag_penalty: 0
+  map_size: null
+
+test_greedy: False
+test_nepisode: 40
+test_interval: 50000
+log_interval: 50000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+obs_agent_id: False
+
+
+test_interval: 5000 # Test after {} timesteps have passed
+log_interval: 5000 # Log summary of stats after every {} timesteps
+runner_log_interval: 5000 # Log runner stats (not test stats) every {} timesteps
+learner_log_interval: 5000
