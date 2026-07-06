@@ -2,6 +2,7 @@
 import copy
 
 import torch as th
+import numpy as np
 from torch.optim import Adam
 
 from components.episode_buffer import EpisodeBatch
@@ -142,6 +143,13 @@ class PPOLearner:
 
             target_vals = advantages + old_vals[:, :-1]
 
+        advantages = advantages.detach()
+        # Calculate policy grad with mask
+        adv_mean = (advantages * truncate_mask).sum().item() / truncate_mask.sum().item()
+        adv_var = ((advantages - adv_mean) ** 2 * truncate_mask).sum().item() / (truncate_mask.sum().item()-1)
+        if self.args.norm_adv:
+            advantages = (advantages - adv_mean) / (np.sqrt(adv_var) + 1e-8)
+
         for k in range(self.args.epochs):
             mac_out = []
             self.mac.init_hidden(batch.batch_size)
@@ -160,8 +168,6 @@ class PPOLearner:
                 target_vals,
             )
 
-            advantages = advantages.detach()
-            # Calculate policy grad with mask
 
             pi[truncate_mask == 0] = 1.0
 
@@ -207,9 +213,15 @@ class PPOLearner:
                     key, sum(critic_train_stats[key]) / ts_logged, t_env
                 )
 
+            
             self.logger.log_stat(
                 "advantage_mean",
-                (advantages * truncate_mask).sum().item() / truncate_mask.sum().item(),
+                adv_mean,
+                t_env,
+            )
+            self.logger.log_stat(
+                "advantage_var",
+                adv_var,
                 t_env,
             )
             self.logger.log_stat("entropy", entropy.mean().item(), t_env)

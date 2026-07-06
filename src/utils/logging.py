@@ -164,7 +164,7 @@ def get_logger():
 
 
 class CSVLogger:
-    """Very simple logger for test score, intended for rliable"""
+    """Very simple logger for test score"""
 
     def __init__(self, dir, token: str):
         self.dir = dir

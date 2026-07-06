@@ -50,3 +50,9 @@ revs_model_hidden_dim: 128
 
 use_er_graph: False  #  erdos_renyi_graph
 p: 0.3
+
+noisy_graph: True
+norm_adv: False
+
+rev_model_multi_head: False
+use_encoder: True

@@ -9,10 +9,10 @@ REGISTRY["non_shared_mac"] = NonSharedMAC
 REGISTRY["maddpg_mac"] = MADDPGMAC
 
 
-from .dcg_controller import DeepCoordinationGraphMAC
+# from .dcg_controller import DeepCoordinationGraphMAC
 
-REGISTRY["dcg_mac"] = DeepCoordinationGraphMAC
+# REGISTRY["dcg_mac"] = DeepCoordinationGraphMAC
 
-from .dcg_noshare_controller import DCGnoshareMAC
+# from .dcg_noshare_controller import DCGnoshareMAC
 
-REGISTRY["dcg_noshare_mac"] = DCGnoshareMAC
+# REGISTRY["dcg_noshare_mac"] = DCGnoshareMAC

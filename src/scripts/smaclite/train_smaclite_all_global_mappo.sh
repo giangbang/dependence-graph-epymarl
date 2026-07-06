@@ -5,8 +5,7 @@ thread=10
 clip_epses=( 0.2 0.2  0.05 0.1  0.1 0.05 )
 k=3
 scenarios=( "MMM"        "MMM2"     "corridor"  "bane_vs_bane"  "25m_vs_30m" "3s5z_vs_3s6z")
-total_times=( 1_000_000  2_000_000  3_000_000   2_000_000       2_000_000     3_000_000 )
-
+total_times=( 1_000_000  2_000_000  5_000_000   2_000_000       2_000_000     3_000_000 )
 
 n_exp=${#scenarios[@]}
 

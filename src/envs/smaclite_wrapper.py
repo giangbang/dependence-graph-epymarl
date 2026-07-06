@@ -50,7 +50,8 @@ class SMACliteWrapper(MultiAgentEnv):
             warnings.warn(
                 "common_reward is False but received scalar reward from the environment, returning reward as is"
             )
-
+        if truncated and not terminated:
+            info["episode_limit"] = True
         return obs, reward, terminated, truncated, info
 
     def get_obs(self):
@@ -85,8 +86,9 @@ class SMACliteWrapper(MultiAgentEnv):
 
     def reset(self, seed=None, options=None):
         """Returns initial observations and info"""
-        obs = self.env.reset(seed=seed, options=options)
-        return obs, {}
+        obs, info = self.env.reset(seed=seed, options=options)
+        assert obs[0].shape[0] == self.get_obs_size(), f"{obs[0].shape} {len(obs)}"
+        return obs, info
 
     def render(self):
         self.env.render()

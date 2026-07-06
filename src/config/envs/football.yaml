@@ -1,0 +1,16 @@
+env: "football"
+
+env_args:
+  map_name: null
+  representation: "simple115v2" 
+  rewards: "scoring,checkpoints"
+  stacked: False
+  time_limit: 200
+
+
+test_nepisode: 25
+test_interval: 50000
+log_interval: 100000
+runner_log_interval: 100000
+learner_log_interval: 100000
+t_max: 2050000

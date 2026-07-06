@@ -6,6 +6,7 @@ from .maddpg import MADDPGCritic
 from .maddpg_ns import MADDPGCriticNS
 from .ac import ACCritic
 from .ac_ns import ACCriticNS
+from .multHeadCentralV import multHeadCentralVCritic
 
 
 REGISTRY = {}
@@ -18,6 +19,8 @@ REGISTRY["maddpg_critic"] = MADDPGCritic
 REGISTRY["maddpg_critic_ns"] = MADDPGCriticNS
 REGISTRY["ac_critic"] = ACCritic
 REGISTRY["ac_critic_ns"] = ACCriticNS
+
+REGISTRY["mult_head_cv_critic"] = multHeadCentralVCritic
 
 
 def register_pac_critics():

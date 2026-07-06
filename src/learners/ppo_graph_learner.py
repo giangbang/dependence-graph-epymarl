@@ -14,30 +14,30 @@ class PPOGraphLearner(PPOLearner):
             not self.args.common_reward
         ), "Graph should not be used with common reward"
         if self.args.standardise_rewards:
-            rew_shape = (1,) 
+            rew_shape =  (1,)
             self.rew_ms = RunningMeanStd(shape=rew_shape, device=self.device)
         self.graph_skip_ts = int(self.args.graph_skip_ts)
-        if args.density is not None:
-            assert args.density <= 1 and args.density >= 0
-            args.k = args.density * self.n_agents
+
         self.use_full_path = args.use_full_path
         self.use_er_graph = args.use_er_graph
         self.use_knn_graph = args.use_knn_graph  # oracle graph
         assert not (self.use_er_graph and self.use_knn_graph), "pick one, or none"
         self.use_mi_graph = not self.use_knn_graph and not self.use_er_graph
+        self.noisy_graph = args.noisy_graph
+        self.use_st_encoder = False
 
         from modules.world.reverse_model import GraphModel, StateEncoder
-        self.graph_model = GraphModel(scheme, args).to(self.device)
+        # init state model before graph model, if in case we do not use state encoder,
+        # then state encoder is just an identity function, and it will orverride 
+        # the laten_state_dim in `args` that is used in the reverse models.
         self.state_encoder = StateEncoder(scheme, args).to(self.device)
+        self.graph_model = GraphModel(scheme, args).to(self.device)
 
         self.model_optim = th.optim.Adam(params=self.graph_model.parameters(), 
-                                         lr=args.lr, 
-                                         weight_decay=1e-3,
-                                         decoupled_weight_decay=True)
+                                         lr=args.lr)
         self.state_optim = th.optim.Adam(params=self.state_encoder.parameters(), 
                                          lr=args.lr, 
-                                         weight_decay=1e-3,
-                                         decoupled_weight_decay=True)
+                                        )
 
     def infer_graph(self, batch: EpisodeBatch, t_ep=None, **kwargs):
         if t_ep is not None:
@@ -49,10 +49,11 @@ class PPOGraphLearner(PPOLearner):
         with th.no_grad():
             marginal_entropy, conditional_entropy = self.graph_model.fullbatch_forward(obs, self.state_encoder, batch.device)
             marginal_entropy = marginal_entropy.unsqueeze(-2).expand(-1, -1, n_agent, -1)
+        # should be [thread, episode_len, n_agent, n_agent]
         assert marginal_entropy.shape == conditional_entropy.shape, f"{marginal_entropy.shape} {conditional_entropy.shape}"
 
         ratio = conditional_entropy / (marginal_entropy + 1e-8)
-        graph = th.logical_and(ratio < 0.9, marginal_entropy > (np.log(self.n_actions) * 0.1))
+        graph = (ratio < 0.9)
         assert graph.shape[-1] == graph.shape[-2], graph.shape
         graph.diagonal(dim1=-2, dim2=-1).fill_(1)
 
@@ -61,10 +62,16 @@ class PPOGraphLearner(PPOLearner):
     def train_state_encoder(self, batch: EpisodeBatch, t_env):
         obs = batch["obs"]  # [thread, episode leng, n_agent, dim]
         action = batch["actions"]
+
+        terminated = batch["terminated"].float()
+        mask = batch["filled"].float()
+        assert mask.shape == terminated.shape
+        mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
+
         state_encoder = self.state_encoder
         state = state_encoder(obs)
 
-        loss = self.state_encoder.single_agent_reverse_model.revrs_loss(state, action)
+        loss = self.state_encoder.single_agent_reverse_model.revrs_loss(state, action, mask)
         return loss
 
     def train_reverse_model(self, batch: EpisodeBatch):
@@ -73,8 +80,13 @@ class PPOGraphLearner(PPOLearner):
         state_encoder = self.state_encoder
         state = state_encoder(obs).detach()
 
-        loss = self.graph_model.multi_agent_reverse_model.revrs_loss(state, action)
-        loss = loss + self.graph_model.action_predictor.pred_loss(state, action)
+        terminated = batch["terminated"].float()
+        mask = batch["filled"].float()
+        assert mask.shape == terminated.shape
+        mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
+
+        loss = self.graph_model.multi_agent_reverse_model.revrs_loss(state, action, mask)
+        loss = loss + self.graph_model.action_predictor.pred_loss(state, action, mask)
         return loss
 
     def train_world_model(self, batch: EpisodeBatch, t_env: int, episode_num: int):
@@ -105,11 +117,13 @@ class PPOGraphLearner(PPOLearner):
         actions = actions[:, :-1]
 
         if self.args.standardise_rewards:
-            assert rewards.shape[-1] == self.rew_ms.mean.shape[-1], (
+            assert rewards.shape[-1] == self.rew_ms.mean.shape[-1] or self.rew_ms.mean.shape[-1] == 1, (
                 f"{rewards.shape} {self.rew_ms.mean.shape}"
             ) 
             self.rew_ms.update(rewards)
-            rewards = (rewards - self.rew_ms.mean.reshape([1]*len(rewards.shape))) / th.sqrt(self.rew_ms.var).reshape([1]*len(rewards.shape))
+            # rewards = (rewards - self.rew_ms.mean.reshape([1]*len(rewards.shape))) / th.sqrt(self.rew_ms.var).reshape([1]*len(rewards.shape))
+            rewards = (rewards - self.rew_ms.mean) / th.sqrt(self.rew_ms.var)
+            
 
         if self.args.common_reward:
             assert (
@@ -132,7 +146,7 @@ class PPOGraphLearner(PPOLearner):
         old_pi = old_mac_out
         old_pi[truncate_mask == 0] = 1.0
 
-        old_entropy = -th.sum(old_pi * th.log(old_pi + 1e-10), dim=-1)
+        # old_entropy = -th.sum(old_pi * th.log(old_pi + 1e-10), dim=-1)
 
         old_pi_taken = th.gather(old_pi, dim=3, index=actions).squeeze(3)
         old_log_pi_taken = th.log(old_pi_taken + 1e-10)
@@ -152,30 +166,41 @@ class PPOGraphLearner(PPOLearner):
             else:  # use oracle graph
                 graph = batch["graph"][:, :-1]
             old_vals = self.critic(batch).squeeze(3)
-            if not self.use_full_path:
-                raise Exception("do not use this")
-                advantages = utils.compute_adv_gae_graph(
-                    self.args.gamma,
-                    rewards,
-                    mask,
-                    old_vals,
-                    0.95,
-                    graph,
-                    skip_ts=1,
-                )
-            else:
-                # advantages = utils.compute_adv_gae_graph_fullpath(
-                advantages = utils.compute_adv_gae_graph_naive(
-                    self.args.gamma,
-                    rewards,
-                    mask,
-                    old_vals,
-                    0.95,
-                    graph,
-                    skip_ts=1,
-                )
+
+            # advantages = utils.compute_adv_gae_graph_fullpath(
+            advantages = utils.compute_adv_gae_graph_naive(
+                self.args.gamma,
+                rewards,
+                mask,
+                old_vals,
+                0.95,
+                graph,
+                noise_graph=self.noisy_graph,
+            )
 
             target_vals = utils.compute_adv_gae(self.args.gamma, rewards, mask, old_vals, 0.95) + old_vals[:, :-1]
+
+
+        # advantages = advantages.detach()  # n_thread x timesteps x n_agents
+        # # mean over all dims except the last
+        # dims = tuple(range(advantages.ndim - 1))
+        # # Calculate policy grad with mask, we will normalize each agents' advantage separately
+        # adv_mean = (advantages * truncate_mask).sum(dims, keepdim=True) / truncate_mask.sum(dims, keepdim=True)
+        # adv_var = (((advantages - adv_mean) ** 2) * truncate_mask).sum(dims, keepdim=True) / (truncate_mask.sum(dims, keepdim=True)-1)
+        # # print(adv_mean, adv_var, truncate_mask.sum().item(), np.prod(truncate_mask.shape))
+        # if self.args.norm_adv:
+        #     advantages = (advantages - adv_mean) / (th.sqrt(adv_var) + 1e-8)
+
+        advantages = advantages.detach()
+        # Calculate policy grad with mask
+        adv_mean = (advantages * truncate_mask).sum().item() / truncate_mask.sum().item()
+        adv_var = ((advantages - adv_mean) ** 2 * truncate_mask).sum().item() / (truncate_mask.sum().item()-1)
+        if self.args.norm_adv:
+            advantages = (advantages - adv_mean) / (np.sqrt(adv_var) + 1e-8)
+
+        # for logging
+        # adv_mean = adv_mean.mean().item()
+        # adv_var = adv_var.mean().item()
 
         for k in range(self.args.epochs):
             mac_out = []
@@ -186,12 +211,14 @@ class PPOGraphLearner(PPOLearner):
             mac_out = th.stack(mac_out, dim=1)  # Concat over time
 
             pi = mac_out
-            critic_train_stats = self.train_critic_sequential(
-                self.critic, self.target_critic, batch, rewards, mask.clone(), target_vals
+            critic_train_stats = self.train_critic_sequential_gae(
+                self.critic, 
+                self.target_critic, 
+                batch, 
+                rewards, 
+                mask.clone(), 
+                target_vals
             )
-
-            advantages = advantages.detach()
-            # Calculate policy grad with mask
 
             pi[truncate_mask == 0] = 1.0
 
@@ -257,7 +284,12 @@ class PPOGraphLearner(PPOLearner):
 
             self.logger.log_stat(
                 "advantage_mean",
-                (advantages * truncate_mask).sum().item() / truncate_mask.sum().item(),
+                adv_mean,
+                t_env,
+            )
+            self.logger.log_stat(
+                "advantage_var",
+                adv_var,
                 t_env,
             )
             self.logger.log_stat("pg_loss", pg_loss.item(), t_env)
@@ -287,45 +319,3 @@ class PPOGraphLearner(PPOLearner):
                     "conditional_entropy_var", conditional_entropy.var().item(), t_env
                 )
             self.log_stats_t = t_env
-
-    def train_critic_sequential(self, critic, target_critic, batch, rewards, mask, target_returns):
-
-        if self.args.standardise_returns:
-            self.ret_ms.update(target_returns)
-            target_returns = (target_returns - self.ret_ms.mean) / th.sqrt(
-                self.ret_ms.var
-            )
-        mask = mask[:, :-1]
-
-        running_log = {
-            "critic_loss": [],
-            "critic_grad_norm": [],
-            "td_error_abs": [],
-            "target_mean": [],
-            "q_taken_mean": [],
-        }
-
-        v = critic(batch)[:, :-1].squeeze(3)
-        td_error = target_returns.detach() - v
-        masked_td_error = td_error * mask
-        loss = (masked_td_error**2).sum() / mask.sum()
-
-        self.critic_optimiser.zero_grad()
-        loss.backward()
-        grad_norm = th.nn.utils.clip_grad_norm_(
-            self.critic_params, self.args.grad_norm_clip
-        )
-        self.critic_optimiser.step()
-
-        running_log["critic_loss"].append(loss.item())
-        running_log["critic_grad_norm"].append(grad_norm.item())
-        mask_elems = mask.sum().item()
-        running_log["td_error_abs"].append(
-            (masked_td_error.abs().sum().item() / mask_elems)
-        )
-        running_log["q_taken_mean"].append((v * mask).sum().item() / mask_elems)
-        running_log["target_mean"].append(
-            (target_returns * mask).sum().item() / mask_elems
-        )
-
-        return running_log

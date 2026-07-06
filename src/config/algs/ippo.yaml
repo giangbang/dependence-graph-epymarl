@@ -34,3 +34,4 @@ name: "ippo"
 
 t_max: 20050000
 use_gae: False
+norm_adv: False

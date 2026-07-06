@@ -162,23 +162,24 @@ class EpisodeRunner:
             self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
             self.logger.csv_logger.log(returns, self.t_env)
         else:
-            for i in range(self.args.n_agents):
-                self.logger.log_stat(
-                    prefix + f"agent_{i}_return_mean",
-                    np.array(returns)[:, i].mean(),
-                    self.t_env,
-                )
-                self.logger.log_stat(
-                    prefix + f"agent_{i}_return_std",
-                    np.array(returns)[:, i].std(),
-                    self.t_env,
-                )
+            # uncomment to log reward mean and std of individual agents
+            # for i in range(self.args.n_agents):
+            #     self.logger.log_stat(
+            #         prefix + f"agent_{i}_return_mean",
+            #         np.array(returns)[:, i].mean(),
+            #         self.t_env,
+            #     )
+            #     self.logger.log_stat(
+            #         prefix + f"agent_{i}_return_std",
+            #         np.array(returns)[:, i].std(),
+            #         self.t_env,
+            #     )
             total_returns = np.array(returns).sum(axis=-1)
             self.logger.log_stat(
-                prefix + "total_return_mean", total_returns.mean(), self.t_env
+                prefix + "return_mean", total_returns.mean(), self.t_env
             )
             self.logger.log_stat(
-                prefix + "total_return_std", total_returns.std(), self.t_env
+                prefix + "return_std", total_returns.std(), self.t_env
             )
             self.logger.csv_logger.log(total_returns.tolist(), self.t_env)
         returns.clear()

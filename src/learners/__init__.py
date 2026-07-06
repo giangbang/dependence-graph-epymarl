@@ -18,9 +18,9 @@ REGISTRY["maddpg_learner"] = MADDPGLearner
 REGISTRY["ppo_learner"] = PPOLearner
 REGISTRY["ppo_graph_learner"] = PPOGraphLearner
 REGISTRY["pac_learner"] = PACActorCriticLearner
-REGISTRY["pac_dcg_learner"] = PACDCGLearner
+# REGISTRY["pac_dcg_learner"] = PACDCGLearner
 
 
-from .dcg_learner import DCGLearner
+# from .dcg_learner import DCGLearner
 
-REGISTRY["dcg_learner"] = DCGLearner
+# REGISTRY["dcg_learner"] = DCGLearner

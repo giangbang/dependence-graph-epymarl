@@ -6,9 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class CentralVCritic(nn.Module):
+class multHeadCentralVCritic(nn.Module):
+    """
+    from state, predict the values of all the agents at ones instead of using onehot encoding as in CentralV
+    """
     def __init__(self, scheme, args):
-        super(CentralVCritic, self).__init__()
+        super(multHeadCentralVCritic, self).__init__()
 
         self.args = args
         self.n_actions = args.n_actions
@@ -18,28 +21,20 @@ class CentralVCritic(nn.Module):
         self.output_type = "v"
         self.use_knn_graph = getattr(args, "use_knn_graph", False)
         # output_dim = self.n_agents if self.use_knn_graph else 1
-        output_dim = 1
-        if not self.use_cnn:
+        output_dim = self.n_agents
 
-            # Set up network layers
-            self.fc1 = nn.Linear(input_shape, args.hidden_dim)
-            self.fc2 = nn.Linear(args.hidden_dim, args.hidden_dim)
-            self.fc3 = nn.Linear(args.hidden_dim, output_dim)
-        else: 
-            assert not self.use_cnn
-            self.input_shape = input_shape
-            from modules.critics.cnn import CNN
-            self.net = CNN(input_shape, args.hidden_dim)
-            self.fc1 = nn.Linear(args.hidden_dim+self.input_extra, args.hidden_dim)
-            self.fc2 = nn.Linear(args.hidden_dim, output_dim)
+        # Set up network layers
+        self.fc1 = nn.Linear(input_shape, args.hidden_dim)
+        self.fc2 = nn.Linear(args.hidden_dim, args.hidden_dim)
+        self.fc3 = nn.Linear(args.hidden_dim, output_dim)
+
 
     def forward(self, batch, t=None):
         inputs, bs, max_t = self._build_inputs(batch, t=t)
         x = F.relu(self.fc1(inputs))
         x = F.relu(self.fc2(x))
-        q = self.fc3(x)  # 10, 51, 10, 1: batch x time x agent x 1
-
-        return q
+        q = self.fc3(x)  # batch x time x agent
+        return q.unsqueeze(-1)
 
 
     def _build_cnn_inputs(self, batch, t=None):
@@ -52,13 +47,11 @@ class CentralVCritic(nn.Module):
         # state
         inputs.append(
             batch["state"][:, ts]
-            .unsqueeze(2)
-            .repeat(1, 1, self.n_agents, *([1] * len(self.input_shape)))
-        )
+        )  # batch x time x dim
 
         # observations
         if self.args.obs_individual_obs:
-            inputs.append(batch["obs"][:, ts].view(bs, max_t, -1).unsqueeze(2).repeat(1, 1, self.n_agents, 1))
+            inputs.append(batch["obs"][:, ts].view(bs, max_t, -1))
 
         # last actions
         if self.args.obs_last_action:
@@ -71,7 +64,7 @@ class CentralVCritic(nn.Module):
                 last_actions = last_actions.view(bs, max_t, 1, -1).repeat(1, 1, self.n_agents, 1)
                 inputs.append(last_actions)
 
-        inputs.append(th.eye(self.n_agents, device=batch.device).unsqueeze(0).unsqueeze(0).expand(bs, max_t, -1, -1))
+        # inputs.append(th.eye(self.n_agents, device=batch.device).unsqueeze(0).unsqueeze(0).expand(bs, max_t, -1, -1))
 
         inputs_mlp = th.cat(inputs[1:], dim=-1)
         return inputs[0], inputs_mlp, bs, max_t
@@ -81,28 +74,25 @@ class CentralVCritic(nn.Module):
         max_t = batch.max_seq_length if t is None else 1
         ts = slice(None) if t is None else slice(t, t+1)
         inputs = []
-
-        # state batch["state"]: 10, 51, 40]
-        inputs.append(batch["state"][:, ts].unsqueeze(2).repeat(1, 1, self.n_agents, 1))
-        # 10, 51, 10, 40:  batch x time x agents x dim
+        # state
+        inputs.append(batch["state"][:, ts])
 
         # observations
         if self.args.obs_individual_obs:
-            inputs.append(batch["obs"][:, ts].view(bs, max_t, -1).unsqueeze(2).repeat(1, 1, self.n_agents, 1))
-
+            inputs.append(batch["obs"][:, ts].view(bs, max_t, -1))
 
         # last actions
         if self.args.obs_last_action:
             if t == 0:
-                inputs.append(th.zeros_like(batch["actions_onehot"][:, 0:1]).view(bs, max_t, 1, -1))
+                inputs.append(th.zeros_like(batch["actions_onehot"][:, 0:1]).view(bs, max_t, -1))
             elif isinstance(t, int):
-                inputs.append(batch["actions_onehot"][:, slice(t-1, t)].view(bs, max_t, 1, -1))
+                inputs.append(batch["actions_onehot"][:, slice(t-1, t)].view(bs, max_t, -1))
             else:
                 last_actions = th.cat([th.zeros_like(batch["actions_onehot"][:, 0:1]), batch["actions_onehot"][:, :-1]], dim=1)
-                last_actions = last_actions.view(bs, max_t, 1, -1).repeat(1, 1, self.n_agents, 1)
+                last_actions = last_actions.view(bs, max_t, -1)
                 inputs.append(last_actions)
 
-        inputs.append(th.eye(self.n_agents, device=batch.device).unsqueeze(0).unsqueeze(0).expand(bs, max_t, -1, -1))
+        # inputs.append(th.eye(self.n_agents, device=batch.device).unsqueeze(0).unsqueeze(0).expand(bs, max_t, -1, -1))
 
         inputs = th.cat(inputs, dim=-1)
         return inputs, bs, max_t
@@ -119,7 +109,6 @@ class CentralVCritic(nn.Module):
         # last actions
         if self.args.obs_last_action:
             input_extra += scheme["actions_onehot"]["vshape"][0] * self.n_agents
-        input_extra += self.n_agents
         self.input_extra = input_extra
         if self.use_cnn:
             return input_shape

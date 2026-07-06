@@ -1,6 +1,11 @@
 class MultiAgentEnv(object):
     def step(self, actions):
-        """Returns obss, reward, terminated, truncated, info"""
+        """
+        Returns obss, reward, terminated, truncated, info
+        Note that terminated and truncated are not distinguished and treated similarly in epymarl
+        If you want to specify the truncated effect and not terminated effect, set 
+        `info["episode_limit"] = True`
+        """
         raise NotImplementedError
 
     def get_obs(self):

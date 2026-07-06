@@ -124,6 +124,9 @@ def run_sequential(args, logger: Logger):
 
     # Set up schemes and groups here
     env_info = runner.get_env_info()
+    print("="*10)
+    print(env_info)
+    print("="*10)
     args.n_agents = env_info["n_agents"]
     args.n_actions = env_info["n_actions"]
     args.state_shape = env_info["state_shape"]
@@ -151,6 +154,7 @@ def run_sequential(args, logger: Logger):
     # Reserved `graph` field for contribution graph
     if getattr(args, "use_knn_graph", False):
         scheme["graph"] = {"vshape": (args.n_agents, args.n_agents), "dtype": th.uint8}
+
 
     print(scheme)
 

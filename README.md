@@ -1,8 +1,17 @@
-# Source code for the paper Explicit Credit Assignment through Local Rewards and Dependence Graphs in Multi-Agent Reinforcement Learning
-To reproduce the result in the paper, visit the `src/scripts` folder, for example
+# Explicit Credit Assignment through Local Rewards and Dependence Graphs
+This repository contains the official implementation of the paper Explicit Credit Assignment through Local Rewards and Dependence Graphs ([arxiv](https://arxiv.org/abs/2601.21523)).
+
+### Reproducing the Results
+
+To reproduce the experiments reported in the paper, run the corresponding scripts under the `src/scripts` directory. For example:
 ```
-bash src/scripts/train_lbf_all_graph_mappo.sh
+bash src/scripts/lbf/train_lbf_all_graph_mappo.sh
 ```
+Each benchmark has its own set of training scripts in the corresponding subdirectory of `src/scripts`.
+
+### Acknowledgements
+
+This codebase is built upon EPyMARL. We include the original EPyMARL README below for reference.
 
 
 # Extended Python MARL framework - EPyMARL

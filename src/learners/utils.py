@@ -19,74 +19,28 @@ def advantage_graph(advantages, graph, gamma):
     return ret.sum(dim=-1)
 
 
-# def compute_adv_gae_graph_fullpath(
-#     gamma, rewards, mask, vals, gae_lambda, graph, skip_ts
-# ):
-#     """graph [i, j] = 1: agent i has impact to agent j"""
-#     skip_ts=1  # legacy, not used
-#     # vals : n_batch x timestep x n_agent
-#     timestep = int(vals.size(1)) - 1
-#     advantages = th.zeros_like(rewards)
-
-#     # graph  : n_batch x (timesetp-1) x n_agent x n_agent
-#     # graph[i, j]: agent i -> j
-#     or_graph = graph.detach().clone()
-#     paths = th.zeros_like(graph)
-
-#     paths[:, -1] = graph[:, -1]
-#     # current_path_shape = paths[:, t + 1].shape
-#     for t in reversed(range(timestep)):
-#         graph[:, t] = or_graph[:, (t // skip_ts) * skip_ts]
-#     for t in reversed(range(timestep - 1)):
-#         current_path = graph[:, t].clone()
-#         for t_prime in range(t + 1, timestep):
-#             current_path = th.max(current_path, graph[:, t_prime])
-#         paths[:, t] = current_path
-
-#     gae = 0
-#     for t in reversed(range(timestep)):
-#         delta = (
-#             rewards[:, t] * mask[:, t]
-#             + gamma * vals[:, t + 1] * mask[:, t + 1]
-#             - vals[:, t]
-#         )
-        
-#         # path: n_batch x timestep x n_agent x n_agent
-#         # delta: n_batch x n_agent
-        
-#         # delta = ((rewards[:, t] * mask[:, t]).unsqueeze(-2) * graph[:, t]).sum(-1) + gamma * vals[:, t + 1] * mask[:, t + 1] - vals[:, t]
-#         gae = (delta.unsqueeze(-2) * (paths[:, t] * gae_lambda + 1 - gae_lambda)).sum(
-#             -1
-#         ) + gamma * gae_lambda * mask[:, t + 1] * gae
-#         # gae = delta + gamma * gae_lambda * mask[:, t + 1] * gae
-#         advantages[:, t] = gae.clone()
-
-#     return advantages
-
-
 def compute_adv_gae_graph_naive(
-        gamma, rewards, mask, vals, gae_lambda, graph, skip_ts
+    gamma, rewards, mask, vals, gae_lambda, graph, noise_graph=True
 ):
     # vals : n_batch x timestep x n_agent
     timestep = int(vals.size(1)) - 1
     advantages = th.zeros_like(rewards)
-    
+
     # cum_mask = th.zeros_like(mask)
     # cum_mask[:, -1] = mask[:, -1]
 
-    # for t in reversed(range(1, timestep)):
+    # for t in reversed(range(1, tiestep)):
     #     cum_mask[:, t - 1] = th.max(cum_mask[:, t], mask[:, t-1])
-
 
     delta_t = []
     for t in range(timestep):
         delta = (
-                rewards[:, t] * mask[:, t]
+                rewards[:, t]
                 + gamma * vals[:, t + 1] * mask[:, t + 1]
                 - vals[:, t]
             )
         delta_t.append(delta)
-    
+
     graph = graph.float()
 
     for t_0 in reversed(range(timestep)):
@@ -94,55 +48,40 @@ def compute_adv_gae_graph_naive(
         # reach = th.zeros_like(graph[:, t_0])
         # reach = th.ones_like(graph[:, t_0])
         # reach.diagonal(dim1=-2, dim2=-1).fill_(1)
-        reach = graph[:, t_0].clone()
+        reach = graph[:, t_0].clone() 
         power = reach.clone()
-        # current_mask = th.ones_like(mask[:, t_0])
-        current_mask = mask[:, t_0].clone()
+        current_mask = th.ones_like(mask[:, t_0])
+        # current_mask = mask[:, t_0].clone()
 
-        for t in range(t_0, min(50 + t_0, timestep)):
+        for t in range(t_0, min(100 + t_0, timestep)):
+            if t > t_0:
+                power = th.bmm(power, graph[:, t])
+                # power = th.maximum(power, graph[:, t])
+                power = th.clamp(power, min=0, max=1)
+                reach = th.clamp(reach + power, min=0, max=1)
             delta = delta_t[t]
-            # assert delta.unsqueeze(-2).shape == reach.shape, f"{delta.shape} {reach.shape}"
 
-            gae_now = (delta.unsqueeze(-2) * (reach* gae_lambda + 1 - gae_lambda)).sum(
-                -1
-            ) * ((gamma * gae_lambda) ** (t - t_0))
+            if noise_graph:
+                gae_now = (delta.unsqueeze(-2) * (reach * gae_lambda + 1 - gae_lambda)).sum(
+                    -1
+                ) * ((gamma * gae_lambda) ** (t - t_0))
+            else:
+                gae_now = (delta.unsqueeze(-2) * reach).sum(
+                    -1
+                ) * ((gamma * gae_lambda) ** (t - t_0))
             assert gae_now.shape == current_mask.shape, f"{gae_now.shape} {current_mask.shape}"
 
             gae = gae_now * current_mask + gae
             current_mask = th.min(current_mask, mask[:, t + 1])
+            current_mask = th.clamp(current_mask, min=0, max=1)
             # gae = delta + gamma * gae_lambda * mask[:, t + 1] * gae
             # power = th.bmm(power, graph[:, min(t+1, timestep-1)])
-            power = th.bmm(power, graph[:, t])
-            # power = th.maximum(power, graph[:, t])
-            power = th.clamp(power, min=0, max=1)
-            reach = th.clamp(reach + power, min=0, max=1)
         advantages[:, t_0] = gae
 
+    # print(rewards.int())
+    # exit()
+
     return advantages
-
-
-# def compute_adv_gae_graph(gamma, rewards, mask, vals, gae_lambda, graph, skip_ts=1):
-#     # vals : n_batch x timestep x n_agent x n_agent
-#     timestep = int(vals.size(1)) - 1
-#     advantages = th.zeros_like(rewards)
-
-#     gae = 0
-#     for t in reversed(range(timestep)):
-#         delta = (
-#             rewards[:, t] * mask[:, t]
-#             + gamma * vals[:, t + 1] * mask[:, t + 1]
-#             - vals[:, t]
-#         )
-#         # delta = ((rewards[:, t] * mask[:, t]).unsqueeze(-2) * graph[:, t]).sum(-1) + gamma * vals[:, t + 1] * mask[:, t + 1] - vals[:, t]
-#         gae = (delta.unsqueeze(-2) * \
-#                 (graph[:, (t // skip_ts) * skip_ts] * gae_lambda + 1 - gae_lambda)
-#             ).sum(
-#             -1
-#         ) + gamma * gae_lambda * mask[:, t + 1] * gae
-#         # gae = delta + gamma * gae_lambda * mask[:, t + 1] * gae
-#         advantages[:, t] = gae.clone()
-
-#     return advantages
 
 
 def compute_adv_gae(gamma, rewards, mask, vals, gae_lambda):
@@ -152,10 +91,13 @@ def compute_adv_gae(gamma, rewards, mask, vals, gae_lambda):
     gae = 0
     for t in reversed(range(timestep)):
 
-        delta = rewards[:, t] * mask[:, t] + gamma * vals[:, t + 1] * mask[:, t + 1] - vals[:, t]
+        delta = rewards[:, t] + gamma * vals[:, t + 1] * mask[:, t + 1] - vals[:, t]
         gae = delta + gamma * gae_lambda * mask[:, t + 1] * gae
         # advantages[:, t] = (gae.unsqueeze(-2)
         advantages[:, t] = gae.clone()
+    
+    # print(rewards.int())
+    # exit()
 
     return advantages
 

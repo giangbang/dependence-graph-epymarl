@@ -1,4 +1,5 @@
 import gymnasium as gym
+import gym as original_gym
 import numpy as np
 from .multiagentenv import MultiAgentEnv
 from envs.stag_hunt import StagHunt
@@ -12,13 +13,23 @@ def get_erdos_renyi_graph(batch, n_agents, p):
 
 
 def get_knn_graph(env, k):
+    """return one graph and it is assumed state graph
+    return two graphs and they are assumed state and reward graphs"""
+
     original_env = env
+    # Fast path: env exposes its own oracle graph via get_graph()
+    if hasattr(original_env, "get_graph"):
+        g_s = original_env.get_graph()
+        return g_s, None
+
     if isinstance(env, MultiAgentEnv) and not isinstance(env, StagHunt):
         try:
             env = env.env
         except:
             env = env._env
     if isinstance(env, gym.Env):
+        env = env.unwrapped
+    if isinstance(env, original_gym.wrappers.TimeLimit):
         env = env.unwrapped
     env_name = env.__class__.__name__
     threshold = None
@@ -85,6 +96,13 @@ def get_knn_graph(env, k):
         ).sum(axis=-1)  # n_agents x n_agents
         threshold = 3
 
+        # for i, agent in enumerate(env.players):
+        #     # no food next to current agent
+        #     if (env.neighborhood(*agent.position, ignore_diag=True)) <= 1e-6:
+        #         dist[i, :] = 1e6
+        #         dist[:, i] = 1e6
+
+        # np.fill_diagonal(dist, 0)
 
     elif env_name == "CustomSMACliteEnv":
         from envs.custom_smaclite.env import CustomSMACliteEnv
@@ -163,6 +181,11 @@ def get_knn_graph(env, k):
         )  # n_agents x n_agents
         assert dist.shape == (n_agents, n_agents), f"{dist.shape} and {n_agent} does not match"
         threshold = 3
+    elif env_name == "FootballEnv":
+        from envs.football_wrapper import FootballWrapper
+        original_env: FootballWrapper
+        graph = original_env.graph
+        return graph, None
     else:
         raise NotImplementedError(env_name + " not support agent graph")
 
