@@ -1,5 +1,5 @@
 # Explicit Credit Assignment through Local Rewards and Dependence Graphs
-This repository contains the official implementation of the paper Explicit Credit Assignment through Local Rewards and Dependence Graphs ([arxiv](https://arxiv.org/abs/2601.21523)).
+This repository contains the official implementation of the paper Explicit Credit Assignment through Local Rewards and Dependence Graphs.
 
 ### Reproducing the Results
 
